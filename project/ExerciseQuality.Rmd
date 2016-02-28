@@ -1,0 +1,185 @@
+---
+title: "Coursera Practical Machine Learning Course Project"
+author: "David Galbraith"
+date: "Saturday, February 27, 2016"
+output: html_document
+---
+
+```{r load_libraries, echo=FALSE, message=FALSE, warning=FALSE}
+library(downloader)
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(plyr)
+library(dplyr)
+```
+
+## Executive Summary
+This paper describes the work undertaken for the Course Project for the [Practical Machine Learning](https://www.coursera.org/learn/practical-machine-learning/home/welcome) course as part of the Johns Hopkins/Coursera Data Science Specialization. Using the [Weight Lifting Exercises Dataset](http://groupware.les.inf.puc-rio.br/static/WLE/WearableComputing_weight_lifting_exercises_biceps_curl_variations.csv) from the [Human Activity Recognition project](http://groupware.les.inf.puc-rio.br/har) at [Departamento De Inforámtica PUC Rio](http://www.inf.puc-rio.br/) we construct a number of predictive models over inputs from sensors gathering information during controlled variations of a Unilateral Dumbbell Biceps Curl exercise conducted by 6 human subjects.
+
+The predictive models are evaluated against a subset of the training set held aside for cross-validation to identify the best predictive model.  Once the optimum model was identified it was then applied to predict against a provided test dataset and identify appropriate measures of qualitative activity recognition indicated by the combination of sensor readings.
+
+## Data
+We acquire the training and test data sets if they are not available.  We cache local copies of the data upon initial retrieval.
+
+```{r acquire_data, message=FALSE, warning=FALSE}
+if (!file.exists('data')) {
+        dir.create(file.path(getwd(), 'data'))
+}       
+setwd(file.path(getwd(), 'data'))
+
+# training set
+url <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+file <- "pml-training.csv"
+if (!file.exists(file)) {
+        download(url, file)
+}
+training <- read.csv(file, header=TRUE, na.strings=c("NA", ""), stringsAsFactors=FALSE, strip.white=TRUE)
+
+# test set
+url <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+file <- "pml-testing.csv"
+if (!file.exists(file)) {
+        download(url, file)
+}
+testing <- read.csv(file, header=TRUE, na.strings=c("NA", ""), stringsAsFactors=FALSE, strip.white=TRUE)
+```
+
+We provide an initial seed to ensure reproducibility of the analysis:
+
+```{r}
+set.seed(1968)
+```
+
+## Analysis
+The training data set consists of `r nrow(training)` observations of `r length(training)` variables.  The testing set consists of the same `r length(testing)` variables but only `r nrow(testing)` observations.
+
+There are a number of variables `r names(training[, 1:7])` that represent the observation number, user name and timing information which is specific to the windowed analysis approach used in the initial capture of the data.  These variables have no relevance to the raw sensor data.
+
+Each observation is related to a specific method of execution of the Unilateral Dumbbell Biceps Curl excercise.  These methods were:
+
+* exactly according to the specification (Class A)
+
+* throwing the elbows to the front (Class B)
+
+* lifting the dumbbell only halfway (Class C)
+
+* lowering the dumbbell only halfway (Class D)
+
+* throwing the hips to the front (Class E)
+
+The specific method of execution that a set of sensor observations relate to is captured in the 'classe' variable which represents the output which we are trying to predict.
+
+The balance of the data represents a mix of primary and derived data.  The primary data is a capture of raw sensor data while the derived data (average, variance, minimum, maximum, etc.) represents measures applied to the data throughout an observation window ranging from 0.5s to 2.5s corresponding to 1 repetition of the Unilateral Dumbbell Biceps Curl.
+
+## Cleaning
+Original data sets were modified as follows:
+
+1. Dropped the inital 7 columns (`r names(training[, 1:7])`) 
+2. Remove all derived data as the data is not relevant to training a model based on instantaneous sensor values
+3. Coerced the 'classe' variable to a factor (training set only)
+
+```{r clean_data, message=FALSE, warning=FALSE}
+training <- training[, -c(1:7)]
+training <- training %>% select(-starts_with("avg_"),
+                                -starts_with("var_"),
+                                -starts_with("stddev_"),
+                                -starts_with("max_"),
+                                -starts_with("min_"),
+                                -starts_with("amplitude_"),
+                                -starts_with("kurtosis_"),
+                                -starts_with("skewness_"))
+training$classe <- as.factor(training$classe)
+
+testing <- testing[, -c(1:7)]
+testing <- testing %>% select(-starts_with("avg_"),
+                              -starts_with("var_"),
+                              -starts_with("stddev_"),
+                              -starts_with("max_"),
+                              -starts_with("min_"),
+                              -starts_with("amplitude_"),
+                              -starts_with("kurtosis_"),
+                              -starts_with("skewness_"))
+```
+
+Once the data has been cleaned we have a total of `r nrow(training)` observations of `r length(training)` variables remaining in the training set with the corresponding `r length(testing)` variables for the `r nrow(testing)` observations in the test set.
+
+## Partitioning
+The test data does not contain the 'classe' variable so is not useful for evaluating the performance of models.  Given this we partition the training set into training and testing subsets.  We have taken 60% of the data to use for training models with the remaining 40% retained for testing and used to estimate the out-of-sample accuracy of the models.
+
+```{r partition_data, message=FALSE, warning=FALSE}
+in.training <- createDataPartition(training$classe, p=0.6, list=FALSE)
+training.subset <- training[in.training, ]
+testing.subset <- training[-in.training, ]
+```
+## Modelling
+We evaluate a number of different approaches (decision trees, random forests and generalized boosted regression) in coming up with a suitable model as a predictor of the 'classe' variable using the data acquired from sensor observations while subjects execute the Unilateral Dumbbell Biceps Curl under supervised success or failure conditions.
+
+### Decision Trees
+We build a model with Decision Trees using the 'rpart' package.
+
+```{r decision_trees, message=FALSE, warning=FALSE}
+dt.model <- rpart(classe ~ ., data=training.subset, method="class")
+fancyRpartPlot(dt.model, main="Classification Tree for Weight Lifting Exercises Dataset", sub="")
+dt.model.predict <- predict(dt.model, testing.subset, type="class")
+summary(dt.model.predict)
+dt.model.accuracy <- confusionMatrix(dt.model.predict, testing.subset$classe)
+dt.model.accuracy
+```
+
+The accuracy of this decision tree model is 72.46% when cross validated for out of sample predictions.  This gives an out of sample error of 1 - 0.7246 = 27.54% which is high given the large number of samples and suggests that this decision trees model is not useful in making out of model predictions.
+
+### Random Forests
+We build a model with Random Forests using the 'randomForest' package.
+
+```{r random_forests, message=FALSE, warning=FALSE}
+rf.model <- randomForest(classe ~ ., data=training.subset, verbose=FALSE)
+print(rf.model)
+```
+
+The OOB estimate of the error rate of 0.65% is quite low and suggests that the model should provide a good degree of accuracy for out of sample tests.
+
+```{r}
+rf.model.predict <- predict(rf.model, testing.subset, type="class")
+summary(rf.model.predict)
+rf.model.accuracy <- confusionMatrix(rf.model.predict, testing.subset$classe)
+rf.model.accuracy
+
+plot(rf.model, main="Random Forest Error Rate vs Number of Trees")
+```
+
+The accuracy of this random forests model for out of sample prediction is 99.4% with the out of sample error being 1 - 0.994 = 0.6% and \( \kappa \ K \) is 99.24% which suggests that this random forests model with the current settings is accurate and useful in making out of model predictions.
+
+### Generalized Boosted Regression
+We build a model using boosted regression leveraging a stochastic gradient boosting approach.
+
+```{r generalized_boosted_regression, message=FALSE, warning=FALSE}
+gbm.model <- train(classe ~ ., method="gbm", data=training.subset, verbose=FALSE)
+print(gbm.model)
+gbm.model.predict <- predict(gbm.model, testing.subset)
+summary(gbm.model.predict)
+gbm.model.accuracy <- confusionMatrix(gbm.model.predict, testing.subset$classe)
+gbm.model.accuracy
+plot(gbm.model, ylim=c(0.7, 1), main="GBR Error Rate vs Boost Iterations")
+```
+
+The accuracy of this GBR model for out of sample prediction is 96.24% with the out of sample error being 1 - 0.9624 = 3.76%  and \( \kappa \ K \) is 95.24% which suggests that this generalized boosted regression model with the current settings is accurate and useful in making out of model predictions, albeit not as good as the previous random forests model.
+
+## Model Evaluation
+Examining the out of sample error rates for each of the models it is apparent that the random forests model with an out of sample error rate of 0.6% is the model which is able to most accurately predict the correct outcomes for our dataset.
+
+## Predictions
+Having identified random forests as providing the best predictive model we now apply this model to determine the outcome variable 'classe' on the testing set.
+
+```{r}
+testing.predictions <- predict(rf.model, testing)
+testing.predictions
+```
+
+## Conclusions
+Machine learning techniques appear to provide a viable approach to assessing qualitative factors related to excercise.  While significant efforts would be required to assemble an appropriate body of data to represent good and bad technique as it relates to physical excercise it is, with appropriate data, possible to produce highly accurate models to determine if the execution of a particular exercise is being done with good form.
+
+## References
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. [Qualitative Activity Recognition of Weight Lifting Exercises](http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201). Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
