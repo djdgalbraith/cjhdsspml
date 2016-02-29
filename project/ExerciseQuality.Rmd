@@ -150,7 +150,7 @@ rf.model.accuracy
 plot(rf.model, main="Random Forest Error Rate vs Number of Trees")
 ```
 
-The accuracy of this random forests model for out of sample prediction is 99.4% with the out of sample error being 1 - 0.994 = 0.6% and \( \kappa \ K \) is 99.24% which suggests that this random forests model with the current settings is accurate and useful in making out of model predictions.
+The accuracy of this random forests model for out of sample prediction is 99.4% with the out of sample error being 1 - 0.994 = 0.6% and kappa is 99.24% which suggests that this random forests model with the current settings is accurate and useful in making out of model predictions.
 
 ### Generalized Boosted Regression
 We build a model using boosted regression leveraging a stochastic gradient boosting approach.
@@ -165,10 +165,20 @@ gbm.model.accuracy
 plot(gbm.model, ylim=c(0.7, 1), main="GBR Error Rate vs Boost Iterations")
 ```
 
-The accuracy of this GBR model for out of sample prediction is 96.24% with the out of sample error being 1 - 0.9624 = 3.76%  and \( \kappa \ K \) is 95.24% which suggests that this generalized boosted regression model with the current settings is accurate and useful in making out of model predictions, albeit not as good as the previous random forests model.
+The accuracy of this GBR model for out of sample prediction is 96.24% with the out of sample error being 1 - 0.9624 = 3.76%  and kappa is 95.24% which suggests that this generalized boosted regression model with the current settings is accurate and useful in making out of model predictions, albeit not as good as the previous random forests model.
 
 ## Model Evaluation
 Examining the out of sample error rates for each of the models it is apparent that the random forests model with an out of sample error rate of 0.6% is the model which is able to most accurately predict the correct outcomes for our dataset.
+
+Finally we use cross validation to validate the accuracy of the selected model before conducting final projections on the training set.  With 5-fold cross validation we see
+
+```{r}
+rf.model.crossvalidation.model <- train(classe ~ ., training, method="rf", trControl=trainControl(method="cv", 5), ntree=500)
+rf.model.crossvalidation.model
+
+```
+
+that the model accuracy is 99.41% and kappa is 99.25%.  This is inline with the previous accuracy determined for this random forests model and suggests that this model is a good one with both high sensitivity and high specificity.  This supports the model selection and we will use this random forest model to attempt to predict the oucome variable on the testing set.
 
 ## Predictions
 Having identified random forests as providing the best predictive model we now apply this model to determine the outcome variable 'classe' on the testing set.
